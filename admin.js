@@ -45,7 +45,7 @@ async function loadDashboard(){
 }
 async function loadSettings(){const data=await api('/settings');$('studio-email').value=data.email;$('studio-phone').value=data.phone;$('editing-folder').value=data.editingFolder;}
 function previewCard(src,name,detail,checkbox){const card=document.createElement(checkbox?'label':'div');card.className='photo-card';if(checkbox){const input=document.createElement('input');input.type='checkbox';input.checked=selectedUploads.has(checkbox);input.addEventListener('change',()=>{input.checked?selectedUploads.add(checkbox):selectedUploads.delete(checkbox);pendingKey='';});card.append(input);}const image=document.createElement('img');image.src=src;image.alt=name;image.loading='lazy';const caption=document.createElement('div');caption.className='photo-caption';caption.textContent=name;const small=document.createElement('small');small.textContent=detail;caption.append(small);card.append(image,caption);return card;}
-async function loadUploads(){const result=await api('/uploads');uploads=result.items;const grid=$('uploaded-files');grid.replaceChildren();for(const item of uploads){const selectable=!item.claimed;grid.append(previewCard(`${cfg.apiBase||''}/api/uploads/${encodeURIComponent(item.id)}/preview`,item.name,item.claimed?'Encaminhado para publicação':'Na pasta de edição',selectable?item.id:null));}if(!uploads.length){const p=document.createElement('p');p.className='empty-state';p.textContent='As fotos enviadas por este painel aparecerão aqui.';grid.append(p);}}
+async function loadUploads(){const result=await api('/uploads');uploads=result.items;const grid=$('uploaded-files');grid.replaceChildren();for(const item of uploads){const selectable=!item.claimed;grid.append(previewCard(`${cfg.apiBase||''}/api/uploads/${encodeURIComponent(item.id)}/preview`,item.name,item.claimed?'Encaminhado para publicação':'Na pasta de edição',selectable?item.id:null));const card=grid.lastElementChild;const download=document.createElement('a');download.className='text-link photo-download';download.href=`${cfg.apiBase||''}/api/uploads/${encodeURIComponent(item.id)}/download`;download.textContent='Baixar original';download.addEventListener('click',event=>event.stopPropagation());card.append(download);}if(!uploads.length){const p=document.createElement('p');p.className='empty-state';p.textContent='As fotos enviadas por este painel aparecerão aqui.';grid.append(p);}}
 async function authenticated(){showDashboard();await Promise.all([loadDashboard(),loadSettings(),loadUploads()]);}
 $('github-access').href=`https://github.com/${cfg.repository}/actions`;
 $('today').textContent=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',dateStyle:'long'}).format(new Date());
@@ -59,10 +59,30 @@ $('photo-files').addEventListener('change',()=>{
   if(files.length>10||files.some(f=>!['image/jpeg','image/png'].includes(f.type)||f.size>12*1024*1024)){selected=[];$('selected-files').replaceChildren();$('upload-photos').disabled=true;message('upload-message','Escolha até 10 fotos JPEG/PNG, com no máximo 12 MB cada.',true);return;}
   selected=files.map(file=>({file,key:crypto.randomUUID(),preview:URL.createObjectURL(file),done:false}));$('selected-files').replaceChildren(...selected.map(x=>previewCard(x.preview,x.file.name,`${(x.file.size/1024/1024).toFixed(1)} MB`)));$('upload-photos').disabled=!selected.length;message('upload-message','');
 });
-$('upload-photos').addEventListener('click',async()=>{if(busy)return;busy=true;$('upload-photos').disabled=true;try{for(let i=0;i<selected.length;i++){const item=selected[i];if(item.done)continue;message('upload-message',`Enviando foto ${i+1} de ${selected.length}…`);const body=new FormData();body.append('file',item.file);await api('/uploads',{method:'POST',body,key:item.key});item.done=true;}message('upload-message','Fotos enviadas para a pasta de edição com sucesso.');await loadUploads();}catch(error){message('upload-message',error.message,true);}finally{busy=false;$('upload-photos').disabled=selected.every(x=>x.done);}});
+async function uploadSelection(){
+  for(let i=0;i<selected.length;i++){
+    const item=selected[i];if(item.done){if(item.id)selectedUploads.add(item.id);continue;}
+    message('upload-message',`Enviando foto ${i+1} de ${selected.length}…`);
+    const body=new FormData();body.append('file',item.file);
+    const result=await api('/uploads',{method:'POST',body,key:item.key});item.done=true;item.id=result.id;selectedUploads.add(result.id);
+  }
+  await loadUploads();message('upload-message','Fotos enviadas e selecionadas para publicação. Você pode publicar agora ou mantê-las na pasta de edição.');
+}
+$('upload-photos').addEventListener('click',async()=>{if(busy)return;busy=true;$('upload-photos').disabled=true;try{await uploadSelection();}catch(error){message('upload-message',error.message,true);}finally{busy=false;$('upload-photos').disabled=selected.every(x=>x.done);}});
 $('publication-format').addEventListener('change',()=>{pendingKey='';const format=$('publication-format').value;$('format-help').textContent=format==='Reels'?'Reels cria um vídeo vertical com as fotos selecionadas, sem música. Os originais são preservados.':format==='Carrossel'?'Carrossel publica de 2 a 10 fotos, na ordem de envio.':'Feed publica uma foto. O contato do WhatsApp é acrescentado à legenda.';});
 $('publication-caption').addEventListener('input',()=>{pendingKey='';});
-$('review-publication').addEventListener('click',()=>{const n=selectedUploads.size,format=$('publication-format').value;if(!n||(format==='Feed'&&n!==1)||(format==='Carrossel'&&(n<2||n>10))){message('publication-message',format==='Feed'?'Selecione exatamente uma foto para o Feed.':format==='Carrossel'?'Selecione de 2 a 10 fotos para o carrossel.':'Selecione as fotos que deseja publicar.',true);return;}$('confirmation-copy').textContent=`${n} foto(s) · ${format} · @vilainealvesstudio2026.${format==='Reels'?' Será criado um vídeo sem música.':''}`;$('publish-dialog').showModal();});
+$('review-publication').addEventListener('click',async()=>{
+  if(busy)return;const n=selectedUploads.size||selected.length,format=$('publication-format').value;
+  if(!n||(format==='Feed'&&n!==1)||(format==='Carrossel'&&(n<2||n>10))){message('publication-message',format==='Feed'?'Escolha uma foto acima ou selecione uma foto já enviada.':format==='Carrossel'?'Escolha ou selecione de 2 a 10 fotos.':'Escolha as fotos que deseja publicar.',true);return;}
+  busy=true;$('review-publication').disabled=true;
+  try{
+    const integrations=await api('/integrations');
+    if(!integrations.github)throw new Error('Para publicar, configure GITHUB_API_TOKEN nos segredos do Worker. O aviso no topo indica essa pendência.');
+    if(!selectedUploads.size){message('publication-message','Enviando as fotos selecionadas antes da confirmação…');await uploadSelection();}
+    $('confirmation-copy').textContent=`${selectedUploads.size} foto(s) · ${format} · @vilainealvesstudio2026.${format==='Reels'?' Será criado um vídeo sem música.':''}`;
+    message('publication-message','');$('publish-dialog').showModal();
+  }catch(error){message('publication-message',error.message,true);}finally{busy=false;$('review-publication').disabled=false;}
+});
 $('cancel-publish').addEventListener('click',()=>$('publish-dialog').close());
 $('confirm-publish').addEventListener('click',async()=>{const button=$('confirm-publish');button.disabled=true;pendingKey||=crypto.randomUUID();try{const result=await api('/publish',{method:'POST',key:pendingKey,body:{uploadIds:[...selectedUploads],format:$('publication-format').value,caption:$('publication-caption').value}});$('publish-dialog').close();message('publication-message',result.message);selectedUploads.clear();pendingKey='';await Promise.all([loadUploads(),loadDashboard()]);}catch(error){$('publish-dialog').close();message('publication-message',error.message,true);}finally{button.disabled=false;}});
 $('reload-uploads').addEventListener('click',()=>loadUploads().catch(error=>message('global-message',error.message,true)));
