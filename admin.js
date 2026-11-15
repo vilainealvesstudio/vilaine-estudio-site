@@ -23,9 +23,9 @@ function date(value){return value?new Intl.DateTimeFormat('pt-BR',{timeZone:'Ame
 function publicationItem(item){const row=document.createElement('div');row.className='publication-item';const icon=document.createElement('span');icon.className='publication-icon';icon.textContent=item.format==='Reel'?'▷':'▧';const info=document.createElement('div');const title=document.createElement('strong');title.textContent=item.title;const small=document.createElement('small');small.textContent=`${item.format} · ${date(item.scheduledAt)}`;info.append(title,small);row.append(icon,info,badge(item.status));return row;}
 async function loadDashboard(){
   dashboard=await api('/dashboard');
-  $('stat-published').textContent=dashboard.counts.published;
+  $('stat-published').textContent=dashboard.counts.published??'—';
   $('stat-planned').textContent=dashboard.counts.planned;
-  $('stat-attention').textContent=dashboard.counts.attention;
+  $('stat-attention').textContent=dashboard.counts.attention??'—';
   const recent=$('recent-publications');recent.replaceChildren();
   for(const item of dashboard.publications.slice(0,5))recent.append(publicationItem(item));
   if(!recent.children.length){const p=document.createElement('p');p.className='empty-state';p.textContent='As publicações aparecerão aqui quando entrarem na fila.';recent.append(p);}
