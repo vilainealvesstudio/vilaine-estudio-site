@@ -1,3 +1,4 @@
+import {normalizePhoto} from './photo-format.js';
 import {photoName} from './file-name.js';
 const cfg=window.VILAINE_CONFIG||{};
 if(cfg.adminUrl&&new URL(cfg.adminUrl,location.href).origin!==location.origin)location.replace(cfg.adminUrl);
@@ -91,10 +92,11 @@ for(const el of document.querySelectorAll('[data-view]'))el.addEventListener('cl
 for(const el of document.querySelectorAll('[data-open-content]'))el.addEventListener('click',()=>showView('content'));
 $('login-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;message('login-message','Verificando acesso…');try{const data=await api('/login',{method:'POST',body:{username:$('username').value,password:$('password').value}});csrf=data.csrf;$('password').value='';message('login-message','');await authenticated();}catch(error){message('login-message',error.message,true);}finally{button.disabled=false;}});
 $('logout').addEventListener('click',async()=>{try{await api('/logout',{method:'POST'});showLogin();}catch(error){message('global-message',error.message,true);}});
-$('photo-files').addEventListener('change',()=>{
+$('photo-files').addEventListener('change',async()=>{
   for(const item of selected)URL.revokeObjectURL(item.preview);
-  const files=[...$('photo-files').files];
-  if(files.length>10||files.some(f=>!['image/jpeg','image/png'].includes(f.type)||f.size>12*1024*1024)){selected=[];$('selected-files').replaceChildren();$('upload-photos').disabled=true;message('upload-message','Escolha até 10 fotos JPEG/PNG, com no máximo 12 MB cada.',true);return;}
+  let files=[...$('photo-files').files];
+  if(files.length>10||files.some(f=>f.size>12*1024*1024)){selected=[];$('selected-files').replaceChildren();$('upload-photos').disabled=true;message('upload-message','Escolha até 10 fotos JPEG/PNG, com no máximo 12 MB cada.',true);return;}
+  try{files=await Promise.all(files.map(normalizePhoto));}catch(error){selected=[];$('selected-files').replaceChildren();$('upload-photos').disabled=true;message('upload-message',error.message,true);return;}
   selected=files.map(file=>({file,key:crypto.randomUUID(),preview:URL.createObjectURL(file),done:false}));renderSelected();$('upload-photos').disabled=!selected.length;message('upload-message','');
 });
 async function uploadSelection(){
