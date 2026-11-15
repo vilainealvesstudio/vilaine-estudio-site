@@ -1,8 +1,14 @@
 'use strict';
-const repository = window.VILAINE_CONFIG?.repository;
-if (!/^[\w.-]+\/[\w.-]+$/.test(repository || '')) throw new Error('Repositório inválido');
-const base = `https://github.com/${repository}`;
-const links = { now: `${base}/issues/new?template=publicar-agora.yml`, tracking: 'https://docs.google.com/spreadsheets/d/1Bn0g84KutP_SE8r0ThGiJJtTAMwInXuAOpYI4ayV9EE/edit', calendar: 'https://docs.google.com/spreadsheets/d/1Bn0g84KutP_SE8r0ThGiJJtTAMwInXuAOpYI4ayV9EE/edit#gid=1863535026', repo: base, new: 'https://drive.google.com/drive/folders/19-ItnXiDS-DgqZe47rSNHwF3B_D8nlHW', issues: `${base}/issues?q=is%3Aissue+is%3Aopen+label%3Apublicacao`, workflow: `${base}/actions/workflows/publications.yml`, actions: `${base}/actions`, state: `${base}/blob/vilaine-state/state.json`, guide: `${base}/blob/main/README.md` };
-for (const element of document.querySelectorAll('[data-link]')) element.href = links[element.dataset.link];
-document.querySelector('#today').textContent = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date()).toUpperCase();
-// Autenticação e autorização acontecem no GitHub. Nenhum token é recebido ou armazenado aqui.
+const cfg=window.VILAINE_CONFIG||{};
+function applyContacts(settings){
+  const digits=String(settings.phone||'').replace(/\D/g,'');
+  if(/^55\d{10,11}$/.test(digits)) {
+    for(const a of document.querySelectorAll('[data-whatsapp]'))a.href=`https://wa.me/${digits}`;
+    for(const a of document.querySelectorAll('[data-phone]')){a.href=`tel:+${digits}`;a.textContent=settings.phone;}
+  }
+  if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.email||''))for(const a of document.querySelectorAll('[data-email]')){a.href=`mailto:${settings.email}`;a.textContent=settings.email;}
+}
+if(cfg.adminUrl)for(const a of document.querySelectorAll('a[href="admin.html"]'))a.href=cfg.adminUrl;
+fetch(`${cfg.apiBase||''}/api/public-settings`,{credentials:'omit',headers:{Accept:'application/json'}}).then(async r=>{
+  if(r.ok&&r.headers.get('content-type')?.includes('application/json'))applyContacts(await r.json());
+}).catch(()=>{/* O site mantém os contatos oficiais quando o backend está indisponível. */});
