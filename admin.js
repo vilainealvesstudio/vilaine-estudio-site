@@ -37,7 +37,7 @@ async function loadDashboard(){
     const when=document.createElement('td');when.textContent=date(item.scheduledAt);tr.append(when);
     const metrics=document.createElement('td');const m=item.metrics;
     metrics.textContent=m?Object.entries({Curtidas:m.likes,Comentários:m.comments,Salvamentos:m.saved,Compartilhamentos:m.shares,Visualizações:m.views,Alcance:m.reach}).filter(([,v])=>typeof v==='number').map(([k,v])=>`${k}: ${v}`).join(' · ')||'Indisponível':'Indisponível';tr.append(metrics);
-    const link=document.createElement('td');if(/^https:\/\/(www\.)?instagram\.com\//.test(item.permalink||'')){const a=document.createElement('a');a.href=item.permalink;a.textContent='Ver ↗';a.className='text-link';a.target='_blank';a.rel='noopener';link.append(a);}else link.textContent='—';tr.append(link);table.append(tr);
+    const link=document.createElement('td');if(/^https:\/\/(www\.)?instagram\.com\//.test(item.permalink||'')){const a=document.createElement('a');a.href=item.permalink;a.textContent='Ver ↗';a.className='text-link';a.target='_blank';a.rel='noopener';link.append(a);}else link.textContent='—';if(item.retryable&&item.requestId){const retry=document.createElement('button');retry.className='text-link';retry.textContent='Reenviar solicitação';retry.addEventListener('click',async()=>{retry.disabled=true;try{const result=await api(`/publications/${encodeURIComponent(item.requestId)}/retry`,{method:'POST'});message('global-message',result.message);await loadDashboard();}catch(error){message('global-message',error.message,true);retry.disabled=false;}});link.append(document.createElement('br'),retry);}tr.append(link);table.append(tr);
   }
   $('metrics-updated').textContent=dashboard.metricsUpdated?`Métricas atualizadas em ${date(dashboard.metricsUpdated)}. Horários de Brasília.`:'Métricas ainda não sincronizadas. Horários de Brasília.';
   $('integration-status').textContent=dashboard.integrationSummary;
@@ -101,3 +101,5 @@ $('password-form').addEventListener('submit',async event=>{event.preventDefault(
 setInterval(()=>{if(csrf&&!$('dashboard-screen').hidden&&!$('publish-dialog').open)loadDashboard().catch(()=>{});},60000);
 
 $('connect-google').addEventListener('click',async()=>{const button=$('connect-google');button.disabled=true;try{const result=await api('/google/connect',{method:'POST'});const url=new URL(result.url);if(url.origin!=='https://accounts.google.com')throw new Error('Endereço de autorização inválido.');location.assign(url.href);}catch(error){message('google-message',error.message,true);button.disabled=false;}});
+
+$('check-github').addEventListener('click',async()=>{const button=$('check-github');button.disabled=true;message('github-message','Testando acesso ao repositório e ao workflow…');try{const result=await api('/github/check',{method:'POST'});message('github-message',result.message);await loadDashboard();}catch(error){message('github-message',error.message,true);}finally{button.disabled=false;}});
