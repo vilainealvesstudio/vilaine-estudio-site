@@ -44,9 +44,17 @@ async function loadDashboard(){
   if(dashboard.warning)message('global-message',dashboard.warning);
 }
 async function loadSettings(){const data=await api('/settings');$('studio-email').value=data.email;$('studio-phone').value=data.phone;$('editing-folder').value=data.editingFolder;}
+async function loadGoogleConnection(){
+  const status=await api('/google/status');
+  $('google-status').textContent=status.connected?'Conta Google conectada. Os uploads usarão essa conta.':status.configured?'Pronto para autorizar. Clique abaixo e escolha a conta que possui a pasta.':'A configuração inicial OAuth ainda precisa ser cadastrada no Cloudflare.';
+  $('google-redirect').textContent=status.redirectUri||'';
+  $('connect-google').textContent=status.connected?'Reconectar conta Google':'Conectar minha conta Google';
+  if(new URLSearchParams(location.search).get('google')==='conectado'&&status.connected)message('google-message','Conta Google conectada com sucesso. Tente enviar a foto novamente.');
+  if(new URLSearchParams(location.search).get('google')==='cancelado')message('google-message','Autorização cancelada. Você pode conectar novamente.',true);
+}
 function previewCard(src,name,detail,checkbox){const card=document.createElement(checkbox?'label':'div');card.className='photo-card';if(checkbox){const input=document.createElement('input');input.type='checkbox';input.checked=selectedUploads.has(checkbox);input.addEventListener('change',()=>{input.checked?selectedUploads.add(checkbox):selectedUploads.delete(checkbox);pendingKey='';});card.append(input);}const image=document.createElement('img');image.src=src;image.alt=name;image.loading='lazy';const caption=document.createElement('div');caption.className='photo-caption';caption.textContent=name;const small=document.createElement('small');small.textContent=detail;caption.append(small);card.append(image,caption);return card;}
 async function loadUploads(){const result=await api('/uploads');uploads=result.items;const grid=$('uploaded-files');grid.replaceChildren();for(const item of uploads){const selectable=!item.claimed;grid.append(previewCard(`${cfg.apiBase||''}/api/uploads/${encodeURIComponent(item.id)}/preview`,item.name,item.claimed?'Encaminhado para publicação':'Na pasta de edição',selectable?item.id:null));const card=grid.lastElementChild;const download=document.createElement('a');download.className='text-link photo-download';download.href=`${cfg.apiBase||''}/api/uploads/${encodeURIComponent(item.id)}/download`;download.textContent='Baixar original';download.addEventListener('click',event=>event.stopPropagation());card.append(download);}if(!uploads.length){const p=document.createElement('p');p.className='empty-state';p.textContent='As fotos enviadas por este painel aparecerão aqui.';grid.append(p);}}
-async function authenticated(){showDashboard();await Promise.all([loadDashboard(),loadSettings(),loadUploads()]);}
+async function authenticated(){showDashboard();await Promise.all([loadDashboard(),loadSettings(),loadUploads(),loadGoogleConnection()]);}
 $('github-access').href=`https://github.com/${cfg.repository}/actions`;
 $('today').textContent=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',dateStyle:'long'}).format(new Date());
 for(const el of document.querySelectorAll('[data-view]'))el.addEventListener('click',()=>showView(el.dataset.view));
@@ -91,3 +99,5 @@ $('settings-form').addEventListener('submit',async event=>{event.preventDefault(
 $('password-form').addEventListener('submit',async event=>{event.preventDefault();if($('new-password').value!==$('confirm-password').value){message('password-message','As novas senhas não coincidem.',true);return;}const button=event.submitter;button.disabled=true;try{const result=await api('/password',{method:'POST',body:{currentPassword:$('current-password').value,newPassword:$('new-password').value}});csrf=result.csrf;$('password-form').reset();message('password-message','Senha alterada. As outras sessões foram encerradas.');}catch(error){message('password-message',error.message,true);}finally{button.disabled=false;}});
 (async()=>{try{const session=await api('/session');csrf=session.csrf;await authenticated();}catch(error){if(error.unavailable){$('backend-notice').hidden=false;$('login-form').querySelector('button[type="submit"]').disabled=true;}else if(error.status!==401)message('login-message',error.message,true);}})();
 setInterval(()=>{if(csrf&&!$('dashboard-screen').hidden&&!$('publish-dialog').open)loadDashboard().catch(()=>{});},60000);
+
+$('connect-google').addEventListener('click',async()=>{const button=$('connect-google');button.disabled=true;try{const result=await api('/google/connect',{method:'POST'});const url=new URL(result.url);if(url.origin!=='https://accounts.google.com')throw new Error('Endereço de autorização inválido.');location.assign(url.href);}catch(error){message('google-message',error.message,true);button.disabled=false;}});
