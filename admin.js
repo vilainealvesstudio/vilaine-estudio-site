@@ -1,4 +1,4 @@
-'use strict';
+import {photoName} from './file-name.js';
 const cfg=window.VILAINE_CONFIG||{};
 if(cfg.adminUrl&&new URL(cfg.adminUrl,location.href).origin!==location.origin)location.replace(cfg.adminUrl);
 const $=id=>document.getElementById(id);
@@ -52,8 +52,30 @@ async function loadGoogleConnection(){
   if(new URLSearchParams(location.search).get('google')==='conectado'&&status.connected)message('google-message','Conta Google conectada com sucesso. Tente enviar a foto novamente.');
   if(new URLSearchParams(location.search).get('google')==='cancelado')message('google-message','Autorização cancelada. Você pode conectar novamente.',true);
 }
-function previewCard(src,name,detail,checkbox){const card=document.createElement(checkbox?'label':'div');card.className='photo-card';if(checkbox){const input=document.createElement('input');input.type='checkbox';input.checked=selectedUploads.has(checkbox);input.addEventListener('change',()=>{input.checked?selectedUploads.add(checkbox):selectedUploads.delete(checkbox);pendingKey='';});card.append(input);}const image=document.createElement('img');image.src=src;image.alt=name;image.loading='lazy';const caption=document.createElement('div');caption.className='photo-caption';caption.textContent=name;const small=document.createElement('small');small.textContent=detail;caption.append(small);card.append(image,caption);return card;}
-async function loadUploads(){const result=await api('/uploads');uploads=result.items;const grid=$('uploaded-files');grid.replaceChildren();for(const item of uploads){const selectable=!item.claimed;grid.append(previewCard(`${cfg.apiBase||''}/api/uploads/${encodeURIComponent(item.id)}/preview`,item.name,item.claimed?'Encaminhado para publicação':'Na pasta de edição',selectable?item.id:null));const card=grid.lastElementChild;const download=document.createElement('a');download.className='text-link photo-download';download.href=`${cfg.apiBase||''}/api/uploads/${encodeURIComponent(item.id)}/download`;download.textContent='Baixar original';download.addEventListener('click',event=>event.stopPropagation());card.append(download);}if(!uploads.length){const p=document.createElement('p');p.className='empty-state';p.textContent='As fotos enviadas por este painel aparecerão aqui.';grid.append(p);}}
+function previewCard(src,name,detail,checkbox){const card=document.createElement('div');card.className='photo-card';if(checkbox){const input=document.createElement('input');input.type='checkbox';input.setAttribute('aria-label',`Selecionar ${name}`);input.checked=selectedUploads.has(checkbox);input.addEventListener('change',()=>{input.checked?selectedUploads.add(checkbox):selectedUploads.delete(checkbox);pendingKey='';});card.append(input);}const image=document.createElement('img');image.src=src;image.alt=name;image.loading='lazy';const caption=document.createElement('div');caption.className='photo-caption';caption.textContent=name;const small=document.createElement('small');small.textContent=detail;caption.append(small);card.append(image,caption);return card;}
+function nameEditor(card,name,onSave){
+  const box=document.createElement('div');box.className='file-name-editor';
+  const input=document.createElement('input');input.type='text';input.value=name;input.maxLength=180;input.dataset.fileName='true';input.setAttribute('aria-label','Nome do arquivo');
+  const save=document.createElement('button');save.type='button';save.className='text-link';save.textContent='Salvar nome';
+  save.addEventListener('click',async()=>{save.disabled=true;input.disabled=true;try{input.value=await onSave(input.value);message('upload-message','Nome salvo.');}catch(error){message('upload-message',error.message,true);}finally{save.disabled=false;input.disabled=false;}});
+  box.append(input,save);card.append(box);
+}
+function renderSelected(){
+  $('selected-files').replaceChildren(...selected.map(item=>{const card=previewCard(item.preview,item.file.name,item.done?'Enviado':`${(item.file.size/1024/1024).toFixed(1)} MB`);
+    if(!item.done)nameEditor(card,item.file.name,async value=>{if(busy)throw new Error('Aguarde o envio terminar.');const name=photoName(value,item.file.name,item.file.type);item.file=new File([item.file],name,{type:item.file.type,lastModified:item.file.lastModified});item.key=crypto.randomUUID();card.querySelector('.photo-caption').firstChild.textContent=name;return name;});return card;}));
+}
+async function loadUploads(){
+  const result=await api('/uploads');uploads=result.items;
+  for(const id of selectedUploads)if(!uploads.some(item=>item.id===id&&!item.claimed))selectedUploads.delete(id);
+  const grid=$('uploaded-files');grid.replaceChildren();
+  for(const item of uploads){
+    const card=previewCard(`${cfg.apiBase||''}/api/uploads/${encodeURIComponent(item.id)}/preview`,item.name,item.status|| (item.claimed?'Encaminhado para publicação':'Na pasta de edição'),!item.claimed?item.id:null);grid.append(card);
+    if(!item.claimed)nameEditor(card,item.name,async value=>{const result=await api(`/uploads/${encodeURIComponent(item.id)}`,{method:'PATCH',body:{name:value}});item.name=result.name;pendingKey='';card.querySelector('.photo-caption').firstChild.textContent=result.name;return result.name;});
+    if(item.archivePending){const retry=document.createElement('button');retry.type='button';retry.className='text-link photo-download';retry.textContent='Mover para Publicados';retry.addEventListener('click',async()=>{retry.disabled=true;try{const result=await api(`/publications/${encodeURIComponent(item.publicationId)}/archive`,{method:'POST'});message('publication-message',result.message);}catch(error){message('publication-message',error.message,true);}finally{retry.disabled=false;}});card.append(retry);}
+    const download=document.createElement('a');download.className='text-link photo-download';download.href=`${cfg.apiBase||''}/api/uploads/${encodeURIComponent(item.id)}/download`;download.textContent='Baixar original';card.append(download);
+  }
+  if(!uploads.length){const p=document.createElement('p');p.className='empty-state';p.textContent='Nenhuma foto aguardando publicação. Os arquivos publicados ficam em Publicados e no histórico.';grid.append(p);}
+}
 async function authenticated(){showDashboard();await Promise.all([loadDashboard(),loadSettings(),loadUploads(),loadGoogleConnection()]);}
 $('github-access').href=`https://github.com/${cfg.repository}/actions`;
 $('today').textContent=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',dateStyle:'long'}).format(new Date());
@@ -65,7 +87,7 @@ $('photo-files').addEventListener('change',()=>{
   for(const item of selected)URL.revokeObjectURL(item.preview);
   const files=[...$('photo-files').files];
   if(files.length>10||files.some(f=>!['image/jpeg','image/png'].includes(f.type)||f.size>12*1024*1024)){selected=[];$('selected-files').replaceChildren();$('upload-photos').disabled=true;message('upload-message','Escolha até 10 fotos JPEG/PNG, com no máximo 12 MB cada.',true);return;}
-  selected=files.map(file=>({file,key:crypto.randomUUID(),preview:URL.createObjectURL(file),done:false}));$('selected-files').replaceChildren(...selected.map(x=>previewCard(x.preview,x.file.name,`${(x.file.size/1024/1024).toFixed(1)} MB`)));$('upload-photos').disabled=!selected.length;message('upload-message','');
+  selected=files.map(file=>({file,key:crypto.randomUUID(),preview:URL.createObjectURL(file),done:false}));renderSelected();$('upload-photos').disabled=!selected.length;message('upload-message','');
 });
 async function uploadSelection(){
   for(let i=0;i<selected.length;i++){
@@ -74,7 +96,7 @@ async function uploadSelection(){
     const body=new FormData();body.append('file',item.file);
     const result=await api('/uploads',{method:'POST',body,key:item.key});item.done=true;item.id=result.id;selectedUploads.add(result.id);
   }
-  await loadUploads();message('upload-message','Fotos enviadas e selecionadas para publicação. Você pode publicar agora ou mantê-las na pasta de edição.');
+  renderSelected();await loadUploads();message('upload-message','Fotos enviadas e selecionadas para publicação. Você pode publicar agora ou mantê-las na pasta de edição.');
 }
 $('upload-photos').addEventListener('click',async()=>{if(busy)return;busy=true;$('upload-photos').disabled=true;try{await uploadSelection();}catch(error){message('upload-message',error.message,true);}finally{busy=false;$('upload-photos').disabled=selected.every(x=>x.done);}});
 $('publication-format').addEventListener('change',()=>{pendingKey='';const format=$('publication-format').value;$('format-help').textContent=format==='Reels'?'Reels cria um vídeo vertical com as fotos selecionadas, sem música. Os originais são preservados.':format==='Carrossel'?'Carrossel publica de 2 a 10 fotos, na ordem de envio.':'Feed publica uma foto. O contato do WhatsApp é acrescentado à legenda.';});
@@ -98,7 +120,7 @@ $('refresh-metrics').addEventListener('click',async()=>{const button=$('refresh-
 $('settings-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{const result=await api('/settings',{method:'PATCH',body:{email:$('studio-email').value,phone:$('studio-phone').value,editingFolder:$('editing-folder').value}});message('settings-message',result.warning||'Informações salvas. O site e as próximas divulgações usarão os novos contatos.',!!result.warning);}catch(error){message('settings-message',error.message,true);}finally{button.disabled=false;}});
 $('password-form').addEventListener('submit',async event=>{event.preventDefault();if($('new-password').value!==$('confirm-password').value){message('password-message','As novas senhas não coincidem.',true);return;}const button=event.submitter;button.disabled=true;try{const result=await api('/password',{method:'POST',body:{currentPassword:$('current-password').value,newPassword:$('new-password').value}});csrf=result.csrf;$('password-form').reset();message('password-message','Senha alterada. As outras sessões foram encerradas.');}catch(error){message('password-message',error.message,true);}finally{button.disabled=false;}});
 (async()=>{try{const session=await api('/session');csrf=session.csrf;await authenticated();}catch(error){if(error.unavailable){$('backend-notice').hidden=false;$('login-form').querySelector('button[type="submit"]').disabled=true;}else if(error.status!==401)message('login-message',error.message,true);}})();
-setInterval(()=>{if(csrf&&!$('dashboard-screen').hidden&&!$('publish-dialog').open)loadDashboard().catch(()=>{});},60000);
+setInterval(()=>{if(csrf&&!$('dashboard-screen').hidden&&!$('publish-dialog').open)Promise.all([loadDashboard(),...(!busy&&!document.activeElement?.matches('[data-file-name]')?[loadUploads()]:[])]).catch(()=>{});},60000);
 
 $('connect-google').addEventListener('click',async()=>{const button=$('connect-google');button.disabled=true;try{const result=await api('/google/connect',{method:'POST'});const url=new URL(result.url);if(url.origin!=='https://accounts.google.com')throw new Error('Endereço de autorização inválido.');location.assign(url.href);}catch(error){message('google-message',error.message,true);button.disabled=false;}});
 

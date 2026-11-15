@@ -4,3 +4,5 @@
 .icon-arrow{width:12px;height:12px;display:inline-block;vertical-align:middle;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.5}.nav-icon{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.4}.art-flower svg,.small-icon svg{width:1em;height:1em;fill:currentColor}.moment-icon svg{width:64px;height:64px;fill:currentColor}.dashboard-banner>span svg{width:160px;height:160px;fill:currentColor}@media(max-width:1050px){.dashboard-banner>span svg{width:120px;height:120px}}@media(max-width:700px){.dashboard-banner>span svg{width:70px;height:70px}.moment-icon svg{width:50px;height:50px}}
 
 .photo-download{display:block;padding:0 10px 12px;font-size:10px}
+
+.file-name-editor{padding:0 1rem 1rem;display:grid;gap:.5rem}.file-name-editor input{width:100%;min-width:0;font-size:.9rem}.file-name-editor button{text-align:left}
