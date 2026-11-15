@@ -60,11 +60,11 @@ function nameEditor(card,name,onSave){
   const input=document.createElement('input');input.type='text';input.value=name;input.maxLength=180;input.dataset.fileName='true';input.setAttribute('aria-label','Nome do arquivo');
   const save=document.createElement('button');save.type='button';save.className='text-link';save.textContent='Salvar nome';
   save.addEventListener('click',async()=>{save.disabled=true;input.disabled=true;try{input.value=await onSave(input.value);message('upload-message','Nome salvo.');}catch(error){message('upload-message',error.message,true);}finally{save.disabled=false;input.disabled=false;}});
-  box.append(input,save);card.append(box);
+  box.append(input,save);card.append(box);return input;
 }
 function renderSelected(){
   $('selected-files').replaceChildren(...selected.map(item=>{const card=previewCard(item.preview,item.file.name,item.done?'Enviado':`${(item.file.size/1024/1024).toFixed(1)} MB`);
-    if(!item.done)nameEditor(card,item.file.name,async value=>{if(busy)throw new Error('Aguarde o envio terminar.');const name=photoName(value,item.file.name,item.file.type);item.file=new File([item.file],name,{type:item.file.type,lastModified:item.file.lastModified});item.key=crypto.randomUUID();card.querySelector('.photo-caption').firstChild.textContent=name;return name;});return card;}));
+    if(!item.done)item.nameInput=nameEditor(card,item.file.name,async value=>{if(busy)throw new Error('Aguarde o envio terminar.');const name=photoName(value,item.file.name,item.file.type);item.file=new File([item.file],name,{type:item.file.type,lastModified:item.file.lastModified});item.key=crypto.randomUUID();card.querySelector('.photo-caption').firstChild.textContent=name;return name;});return card;}));
 }
 async function loadUploads(){
   const result=await api('/uploads');uploads=result.items;
@@ -81,6 +81,7 @@ async function loadUploads(){
     saveMessage.addEventListener('click',async()=>{saveMessage.disabled=true;try{await api(`/uploads/${item.id}/message`,{method:'PATCH',body:{message:field.value}});item.message=field.value;message('publication-message','Mensagem salva.');}catch(error){message('publication-message',error.message,true);}finally{saveMessage.disabled=item.claimed;}});
     messageBox.append(label,field,saveMessage);card.append(messageBox);
     if(item.archivePending){const retry=document.createElement('button');retry.type='button';retry.className='text-link photo-download';retry.textContent='Mover para Publicados';retry.addEventListener('click',async()=>{retry.disabled=true;try{const result=await api(`/publications/${encodeURIComponent(item.publicationId)}/archive`,{method:'POST'});message('publication-message',result.message);}catch(error){message('publication-message',error.message,true);}finally{retry.disabled=false;}});card.append(retry);}
+    const hide=document.createElement('button');hide.type='button';hide.className='text-link photo-download';hide.textContent='Retirar do painel';hide.addEventListener('click',()=>hideUploads([item.id]));card.append(hide);
     const download=document.createElement('a');download.className='text-link photo-download';download.href=`${cfg.apiBase||''}/api/uploads/${encodeURIComponent(item.id)}/download`;download.textContent='Baixar original';card.append(download);
   }
   if(!uploads.length){const p=document.createElement('p');p.className='empty-state';p.textContent='Nenhuma foto aguardando publicação. Os arquivos publicados ficam em Publicados e no histórico.';grid.append(p);}
@@ -102,6 +103,8 @@ $('photo-files').addEventListener('change',async()=>{
 async function uploadSelection(){
   const uploaded=[];
   try{
+    for(const item of selected){const name=photoName(item.nameInput?.value??item.file.name,item.file.name,item.file.type);
+      if(name!==item.file.name){item.file=new File([item.file],name,{type:item.file.type,lastModified:item.file.lastModified});item.key=crypto.randomUUID();}}
     for(const item of [...selected]){
       message('upload-message',`Enviando ${item.file.name}…`);
       const body=new FormData();body.append('file',item.file);
@@ -112,8 +115,7 @@ async function uploadSelection(){
   message('upload-message','Envio ao Drive confirmado. As fotos estão em Próximo passo; marque as que deseja publicar.');return uploaded;
 }
 $('upload-photos').addEventListener('click',async()=>{if(busy)return;busy=true;$('upload-photos').disabled=true;try{await uploadSelection();}catch(error){message('upload-message',error.message,true);}finally{busy=false;$('upload-photos').disabled=selected.every(x=>x.done);}});
-$('publication-format').addEventListener('change',()=>{pendingKey='';const format=$('publication-format').value;$('format-help').textContent=format==='Reels'?'Reels cria um vídeo vertical com as fotos selecionadas, sem música. Os originais são preservados.':format==='Carrossel'?'Carrossel publica de 2 a 10 fotos, na ordem de envio.':'Feed cria uma publicação por foto marcada, usando a mensagem de cada foto. O WhatsApp é acrescentado à legenda.';});
-$('publication-caption').addEventListener('input',()=>{pendingKey='';});
+$('publication-format').addEventListener('change',()=>{pendingKey='';photoRequests.clear();const format=$('publication-format').value;$('format-help').textContent=format==='Reels'?'Reels cria um vídeo vertical com as fotos selecionadas, sem música. Os originais são preservados.':format==='Story'?'Story publica uma foto por vez. Requer conta Business e permissão oficial. A mensagem fica no histórico: a API não adiciona texto, links ou stickers à imagem.':format==='Carrossel'?'Carrossel publica de 2 a 10 fotos, na ordem de envio.':'Feed cria uma publicação por foto marcada, usando a mensagem de cada foto. O WhatsApp é acrescentado à legenda.';});
 $('review-publication').addEventListener('click',async()=>{
   if(busy)return;const n=selectedUploads.size||selected.length,format=$('publication-format').value;
   if(!n||(format==='Carrossel'&&(n<2||n>10))){message('publication-message',format==='Feed'?'Escolha uma foto acima ou selecione uma foto já enviada.':format==='Carrossel'?'Escolha ou selecione de 2 a 10 fotos.':'Escolha as fotos que deseja publicar.',true);return;}
@@ -122,7 +124,7 @@ $('review-publication').addEventListener('click',async()=>{
     const integrations=await api('/integrations');
     if(!integrations.github)throw new Error('Para publicar, configure GITHUB_API_TOKEN nos segredos do Worker. O aviso no topo indica essa pendência.');
     if(!selectedUploads.size){message('publication-message','Enviando as fotos selecionadas antes da confirmação…');for(const id of await uploadSelection())selectedUploads.add(id);}
-    $('confirmation-copy').textContent=`${selectedUploads.size} foto(s) · ${format==='Feed'?'Uma publicação por foto, com sua própria mensagem':format} · @vilainealvesstudio2026.${format==='Reels'?' Será criado um vídeo sem música.':''}`;
+    $('confirmation-copy').textContent=`${selectedUploads.size} foto(s) · ${['Feed','Story'].includes(format)?`${format}: uma publicação por foto`:format} · @vilainealvesstudio2026.${format==='Reels'?' Será criado um vídeo sem música.':''}`;
     message('publication-message','');$('publish-dialog').showModal();
   }catch(error){message('publication-message',error.message,true);}finally{busy=false;$('review-publication').disabled=false;}
 });
@@ -133,15 +135,21 @@ $('confirm-publish').addEventListener('click',async()=>{
     const ids=[...selectedUploads],format=$('publication-format').value;
     const caption=id=>messageDrafts.get(id)??uploads.find(item=>item.id===id)?.message??'';
     for(const id of ids)await api(`/uploads/${id}/message`,{method:'PATCH',body:{message:caption(id)}});
-    if(format==='Feed'){
-      for(const id of ids){if(!photoRequests.has(id))photoRequests.set(id,crypto.randomUUID());await api('/publish',{method:'POST',key:photoRequests.get(id),body:{uploadIds:[id],format,caption:caption(id)||$('publication-caption').value}});selectedUploads.delete(id);}
+    if(['Feed','Story'].includes(format)){
+      for(const id of ids){if(!photoRequests.has(id))photoRequests.set(id,crypto.randomUUID());await api('/publish',{method:'POST',key:photoRequests.get(id),body:{uploadIds:[id],format,caption:caption(id)}});selectedUploads.delete(id);}
     }else{
-      pendingKey||=crypto.randomUUID();await api('/publish',{method:'POST',key:pendingKey,body:{uploadIds:ids,format,caption:$('publication-caption').value||ids.map(caption).filter(Boolean).join('\n\n').slice(0,1900)}});selectedUploads.clear();pendingKey='';
+      pendingKey||=crypto.randomUUID();await api('/publish',{method:'POST',key:pendingKey,body:{uploadIds:ids,format,caption:ids.map(caption).filter(Boolean).join('\n\n').slice(0,1900)}});selectedUploads.clear();pendingKey='';
     }
     message('publication-message','Solicitações enviadas. Após confirmar a publicação e a movimentação para Publicados, as fotos sairão desta lista.');
   }catch(error){message('publication-message',error.message,true);}
   finally{$('publish-dialog').close();button.disabled=false;busy=false;await Promise.all([loadUploads(),loadDashboard()]).catch(()=>{});}
 });
+async function hideUploads(ids){
+  if(busy||!ids.length)return;busy=true;
+  try{const result=await api('/uploads/hide',{method:'POST',body:{ids}});for(const id of ids){selectedUploads.delete(id);messageDrafts.delete(id);}message('publication-message',result.message);await loadUploads();}catch(error){message('publication-message',error.message,true);}finally{busy=false;}
+}
+$('clear-uploads').addEventListener('click',()=>hideUploads(uploads.map(item=>item.id)));
+$('clear-selected').addEventListener('click',()=>{if(busy)return;for(const item of selected)URL.revokeObjectURL(item.preview);selected=[];$('photo-files').value='';renderSelected();$('upload-photos').disabled=true;message('upload-message','Seleção limpa.');});
 $('reload-uploads').addEventListener('click',()=>loadUploads().catch(error=>message('global-message',error.message,true)));
 $('refresh-metrics').addEventListener('click',async()=>{const button=$('refresh-metrics');button.disabled=true;try{const result=await api('/metrics/refresh',{method:'POST'});message('global-message',result.message);}catch(error){message('global-message',error.message,true);}finally{button.disabled=false;}});
 $('settings-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{const result=await api('/settings',{method:'PATCH',body:{email:$('studio-email').value,phone:$('studio-phone').value,editingFolder:$('editing-folder').value}});message('settings-message',result.warning||'Informações salvas. O site e as próximas divulgações usarão os novos contatos.',!!result.warning);}catch(error){message('settings-message',error.message,true);}finally{button.disabled=false;}});
