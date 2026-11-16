@@ -35,7 +35,7 @@ async function loadDashboard(){
   for(const item of dashboard.publications){
     const tr=document.createElement('tr');
     for(const text of [item.title,item.format]){const td=document.createElement('td');td.textContent=text;tr.append(td);}
-    const status=document.createElement('td');status.append(badge(item.status));if(item.error){const small=document.createElement('small');small.textContent=item.error;status.append(small);}tr.append(status);
+    const status=document.createElement('td');status.append(badge(item.status));if(item.highlightNote){const note=document.createElement('small');note.textContent=item.highlightNote;status.append(note);}if(item.error){const small=document.createElement('small');small.textContent=item.error;status.append(small);}tr.append(status);
     const when=document.createElement('td');when.textContent=date(item.scheduledAt);tr.append(when);
     const metrics=document.createElement('td');const m=item.metrics;
     metrics.textContent=m?Object.entries({Curtidas:m.likes,Comentários:m.comments,Salvamentos:m.saved,Compartilhamentos:m.shares,Visualizações:m.views,Alcance:m.reach}).filter(([,v])=>typeof v==='number').map(([k,v])=>`${k}: ${v}`).join(' · ')||'Indisponível':'Indisponível';tr.append(metrics);
@@ -45,7 +45,7 @@ async function loadDashboard(){
   $('integration-status').textContent=dashboard.integrationSummary;
   if(dashboard.warning)message('global-message',dashboard.warning);
 }
-async function loadSettings(){const data=await api('/settings');$('studio-email').value=data.email;$('studio-phone').value=data.phone;$('editing-folder').value=data.editingFolder;const whatsapp=`https://wa.me/${data.phone.replace(/\D/g,'')}`;$('instagram-whatsapp-link').href=whatsapp;$('instagram-whatsapp-url').textContent=whatsapp;}
+async function loadSettings(){const data=await api('/settings');$('studio-email').value=data.email;$('studio-phone').value=data.phone;$('editing-folder').value=data.editingFolder;$('studio-highlights').value=(data.highlights||[]).join('\n');const menu=$('publication-highlight'),chosen=menu.value;menu.replaceChildren(new Option('Não adicionar a destaque',''),...(data.highlights||[]).map(name=>new Option(name,name)));menu.value=chosen;const whatsapp=`https://wa.me/${data.phone.replace(/\D/g,'')}`;$('instagram-whatsapp-link').href=whatsapp;$('instagram-whatsapp-url').textContent=whatsapp;}
 async function loadGoogleConnection(){
   const status=await api('/google/status');
   $('google-status').textContent=status.connected?'Conta Google conectada. Os uploads usarão essa conta.':status.configured?'Pronto para autorizar. Clique abaixo e escolha a conta que possui a pasta.':'A configuração inicial OAuth ainda precisa ser cadastrada no Cloudflare.';
@@ -115,7 +115,7 @@ async function uploadSelection(){
   message('upload-message','Envio ao Drive confirmado. As fotos estão em Próximo passo; marque as que deseja publicar.');return uploaded;
 }
 $('upload-photos').addEventListener('click',async()=>{if(busy)return;busy=true;$('upload-photos').disabled=true;try{await uploadSelection();}catch(error){message('upload-message',error.message,true);}finally{busy=false;$('upload-photos').disabled=selected.every(x=>x.done);}});
-$('publication-format').addEventListener('change',()=>{pendingKey='';photoRequests.clear();const format=$('publication-format').value;$('format-help').textContent=format==='Reels'?'Reels cria um vídeo vertical com as fotos selecionadas, sem música. Os originais são preservados.':format==='Story'?'Story publica uma foto por vez. Requer conta Business e permissão oficial. A mensagem fica no histórico: a API não adiciona texto, links ou stickers à imagem.':format==='Carrossel'?'Carrossel publica de 2 a 10 fotos, na ordem de envio.':'Feed cria uma publicação por foto marcada, usando a mensagem de cada foto. O WhatsApp é acrescentado à legenda.';});
+$('publication-format').addEventListener('change',()=>{pendingKey='';photoRequests.clear();const format=$('publication-format').value;$('highlight-control').hidden=format!=='Story';$('format-help').textContent=format==='Reels'?'Reels cria um vídeo vertical com as fotos selecionadas, sem música. Os originais são preservados.':format==='Story'?'Story publica uma foto por vez. Requer conta Business e permissão oficial. A mensagem fica no histórico: a API não adiciona texto, links ou stickers à imagem.':format==='Carrossel'?'Carrossel publica de 2 a 10 fotos, na ordem de envio.':'Feed cria uma publicação por foto marcada, usando a mensagem de cada foto. O WhatsApp é acrescentado à legenda.';});
 $('review-publication').addEventListener('click',async()=>{
   if(busy)return;const n=selectedUploads.size||selected.length,format=$('publication-format').value;
   if(!n||(format==='Carrossel'&&(n<2||n>10))){message('publication-message',format==='Feed'?'Escolha uma foto acima ou selecione uma foto já enviada.':format==='Carrossel'?'Escolha ou selecione de 2 a 10 fotos.':'Escolha as fotos que deseja publicar.',true);return;}
@@ -124,10 +124,11 @@ $('review-publication').addEventListener('click',async()=>{
     const integrations=await api('/integrations');
     if(!integrations.github)throw new Error('Para publicar, configure GITHUB_API_TOKEN nos segredos do Worker. O aviso no topo indica essa pendência.');
     if(!selectedUploads.size){message('publication-message','Enviando as fotos selecionadas antes da confirmação…');for(const id of await uploadSelection())selectedUploads.add(id);}
-    $('confirmation-copy').textContent=`${selectedUploads.size} foto(s) · ${['Feed','Story'].includes(format)?`${format}: uma publicação por foto`:format} · @vilainealvesstudio2026.${format==='Reels'?' Será criado um vídeo sem música.':''}`;
+    $('confirmation-copy').textContent=`${selectedUploads.size} foto(s) · ${['Feed','Story'].includes(format)?`${format}: uma publicação por foto`:format} · @vilainealvesstudio2026.${format==='Reels'?' Será criado um vídeo sem música.':''}${format==='Story'&&$('publication-highlight').value?` Destaque: ${$('publication-highlight').value} — adicionar manualmente no Instagram.`:''}`;
     message('publication-message','');$('publish-dialog').showModal();
   }catch(error){message('publication-message',error.message,true);}finally{busy=false;$('review-publication').disabled=false;}
 });
+$('publication-highlight').addEventListener('change',()=>{pendingKey='';photoRequests.clear();});
 $('cancel-publish').addEventListener('click',()=>$('publish-dialog').close());
 $('confirm-publish').addEventListener('click',async()=>{
   const button=$('confirm-publish');button.disabled=true;busy=true;
@@ -136,7 +137,7 @@ $('confirm-publish').addEventListener('click',async()=>{
     const caption=id=>messageDrafts.get(id)??uploads.find(item=>item.id===id)?.message??'';
     for(const id of ids)await api(`/uploads/${id}/message`,{method:'PATCH',body:{message:caption(id)}});
     if(['Feed','Story'].includes(format)){
-      for(const id of ids){if(!photoRequests.has(id))photoRequests.set(id,crypto.randomUUID());await api('/publish',{method:'POST',key:photoRequests.get(id),body:{uploadIds:[id],format,caption:caption(id)}});selectedUploads.delete(id);}
+      for(const id of ids){if(!photoRequests.has(id))photoRequests.set(id,crypto.randomUUID());await api('/publish',{method:'POST',key:photoRequests.get(id),body:{uploadIds:[id],format,caption:caption(id),...(format==='Story'&&$('publication-highlight').value?{highlight:$('publication-highlight').value}:{})}});selectedUploads.delete(id);}
     }else{
       pendingKey||=crypto.randomUUID();await api('/publish',{method:'POST',key:pendingKey,body:{uploadIds:ids,format,caption:ids.map(caption).filter(Boolean).join('\n\n').slice(0,1900)}});selectedUploads.clear();pendingKey='';
     }
@@ -152,7 +153,7 @@ $('clear-uploads').addEventListener('click',()=>hideUploads(uploads.map(item=>it
 $('clear-selected').addEventListener('click',()=>{if(busy)return;for(const item of selected)URL.revokeObjectURL(item.preview);selected=[];$('photo-files').value='';renderSelected();$('upload-photos').disabled=true;message('upload-message','Seleção limpa.');});
 $('reload-uploads').addEventListener('click',()=>loadUploads().catch(error=>message('global-message',error.message,true)));
 $('refresh-metrics').addEventListener('click',async()=>{const button=$('refresh-metrics');button.disabled=true;try{const result=await api('/metrics/refresh',{method:'POST'});message('global-message',result.message);}catch(error){message('global-message',error.message,true);}finally{button.disabled=false;}});
-$('settings-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{const result=await api('/settings',{method:'PATCH',body:{email:$('studio-email').value,phone:$('studio-phone').value,editingFolder:$('editing-folder').value}});await loadSettings();message('settings-message',result.warning||'Informações salvas. O site e as próximas divulgações usarão os novos contatos.',!!result.warning);}catch(error){message('settings-message',error.message,true);}finally{button.disabled=false;}});
+$('settings-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{const result=await api('/settings',{method:'PATCH',body:{email:$('studio-email').value,phone:$('studio-phone').value,editingFolder:$('editing-folder').value,highlights:$('studio-highlights').value.split('\n').map(name=>name.trim()).filter(Boolean)}});await loadSettings();message('settings-message',result.warning||'Informações salvas. O site e as próximas divulgações usarão os novos contatos.',!!result.warning);}catch(error){message('settings-message',error.message,true);}finally{button.disabled=false;}});
 $('password-form').addEventListener('submit',async event=>{event.preventDefault();if($('new-password').value!==$('confirm-password').value){message('password-message','As novas senhas não coincidem.',true);return;}const button=event.submitter;button.disabled=true;try{const result=await api('/password',{method:'POST',body:{currentPassword:$('current-password').value,newPassword:$('new-password').value}});csrf=result.csrf;$('password-form').reset();message('password-message','Senha alterada. As outras sessões foram encerradas.');}catch(error){message('password-message',error.message,true);}finally{button.disabled=false;}});
 (async()=>{try{const session=await api('/session');csrf=session.csrf;await authenticated();}catch(error){if(error.unavailable){$('backend-notice').hidden=false;$('login-form').querySelector('button[type="submit"]').disabled=true;}else if(error.status!==401)message('login-message',error.message,true);}})();
 setInterval(()=>{if(csrf&&!$('dashboard-screen').hidden&&!$('publish-dialog').open)Promise.all([loadDashboard(),...(!busy&&!document.activeElement?.matches('[data-file-name]')?[loadUploads()]:[])]).catch(()=>{});},60000);
